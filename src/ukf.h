@@ -104,6 +104,7 @@ public:
 	void UpdateRadar(MeasurementPackage meas_package);
 
 	void DebugPrint(const char* message);
+	void DebugPrint(const char* message, const MatrixXd &matrix_to_print);
 
 private:
 	void FirstMeasurement(MeasurementPackage meas_package);

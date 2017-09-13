@@ -85,6 +85,13 @@ void UKF::ProcessMeasurement(MeasurementPackage measurement_pack)
 		return;
 	}
 
+	if ( ( (measurement_pack.sensor_type_ == MeasurementPackage::RADAR) && (this->use_radar_ == false) ) ||
+		 ( (measurement_pack.sensor_type_ == MeasurementPackage::LASER) && (this->use_laser_ == false) ) )
+	{
+		// Skip if the sensor used is meant to be ignored.
+		return;
+	}
+
 	// Compute the time elapsed between the current and previous measurements
 	float dt = (measurement_pack.timestamp_ - this->time_us_) / 1000000.0;	//dt - expressed in seconds
 
@@ -116,7 +123,6 @@ void UKF::ProcessMeasurement(MeasurementPackage measurement_pack)
 		this->UpdateRadar( measurement_pack );
 	}
 	else {
-		return;
 		this->UpdateLidar( measurement_pack );
 	}
 
@@ -130,12 +136,8 @@ void UKF::ProcessMeasurement(MeasurementPackage measurement_pack)
  */
 void UKF::Prediction(double delta_t)
 {
-	/**
-	TODO:
-
-	Complete this function! Estimate the object's location. Modify the state
-	vector, x_. Predict sigma points, the state, and the state covariance matrix.
-	*/
+	// Estimate the object's location. Modify the state vector, x_.
+	// Predict sigma points, the state, and the state covariance matrix.
 
 	// Generate sigma points.
 	this->DebugPrint("Prediction: Generate sigma points");
@@ -254,10 +256,76 @@ void UKF::UpdateLidar(MeasurementPackage measurement_pack)
 
 	You'll also need to calculate the lidar NIS.
 	*/
-	std::cout << "Laser update! = " << measurement_pack.raw_measurements_.transpose() << std::endl;
+	this->DebugPrint("Laser update! = ",  measurement_pack.raw_measurements_.transpose() );
 
-	this->x_(0) = measurement_pack.raw_measurements_(0);
-	this->x_(1) = measurement_pack.raw_measurements_(1);
+	// Predict measurement
+	// Size of the measurement vector for lidar.
+	int n_z = 2;
+
+	// Create matrix for sigma points in measurement space
+	MatrixXd Zsig = MatrixXd(n_z, 2 * this->n_aug_ + 1);
+
+	// Mean predicted measurement
+	VectorXd z_pred = VectorXd(n_z);
+
+	// Measurement covariance matrix S
+	MatrixXd S = MatrixXd(n_z,n_z);
+
+	// Transform sigma points into measurement space.
+	this->DebugPrint("UpdateLidar: transform sigma points into measurement space.");
+	for(int ii = 0; ii < 2*this->n_aug_+1; ii++){
+		Zsig(0, ii) = this->Xsig_pred_(0, ii);
+		Zsig(1, ii) = this->Xsig_pred_(1, ii);
+	}
+
+	// Calculate mean predicted measurement
+	this->DebugPrint("UpdateLidar: Calculate mean predicted measurement.");
+	z_pred.fill(0.0);
+	for(int ii = 0; ii < 2*this->n_aug_+1; ii++){
+		z_pred = z_pred + this->weights_(ii) * Zsig.col(ii);
+	}
+
+	// Calculate measurement covariance matrix S
+	this->DebugPrint("UpdateLidar: Calculate measurement covariance matrix S.");
+	MatrixXd R(2,2);
+	R << 	this->std_laspx_*this->std_laspx_,  0,
+			0, 						    		this->std_laspy_*this->std_laspy_;
+
+	S.fill(0.0);
+	for(int ii = 0; ii < 2*this->n_aug_+1; ii++){
+		// Measurement difference
+		VectorXd z_diff = Zsig.col(ii) - z_pred;
+		S = S + this->weights_(ii) * z_diff * z_diff.transpose() ;
+	}
+	S = S + R;
+
+	// Update state
+	this->DebugPrint("UpdateLidar: Update state.");
+	VectorXd z = VectorXd(n_z);
+	z << measurement_pack.raw_measurements_;
+
+	// Create matrix for cross correlation Tc
+	MatrixXd Tc = MatrixXd( this->n_x_, n_z );
+
+	// Calculate cross correlation matrix
+	this->DebugPrint("UpdateLidar: Calculate cross correlation matrix.");
+	Tc.fill( 0.0 );
+	for(int ii = 0; ii < 2*this->n_aug_+1; ii++){
+
+		VectorXd z_diff = Zsig.col(ii) - z_pred;
+		VectorXd x_diff = this->Xsig_pred_.col(ii).head(this->n_x_) - this->x_;
+		Tc = Tc + this->weights_(ii) * x_diff * z_diff.transpose();
+	}
+
+	//calculate Kalman gain K;
+	MatrixXd K = Tc*S.inverse();
+
+	// Update state mean and covariance matrix
+	this->DebugPrint("UpdateLidar: Update state mean and covariance matrix.");
+	// Residual
+	VectorXd z_diff = z - z_pred;
+	this->x_ = this->x_ + K * z_diff;
+	this->P_ = this->P_ - K * S * K.transpose();
 
 }
 
@@ -464,6 +532,12 @@ void UKF::DebugPrint(const char* message)
 	if(DEBUGGING){
 		std::cout << "DEBUG: " << message << std::endl;
 	}
+}
 
-
+void UKF::DebugPrint(const char* message, const MatrixXd &matrix_to_print)
+{
+	if(DEBUGGING){
+		std::cout << "DEBUG: " << message << std::endl;
+		std::cout << matrix_to_print << std::endl;
+	}
 }

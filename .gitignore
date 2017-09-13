@@ -11,3 +11,4 @@ UnscentedKF
 Makefile
 .settings/
 CMakeFiles/
+/Debug/
