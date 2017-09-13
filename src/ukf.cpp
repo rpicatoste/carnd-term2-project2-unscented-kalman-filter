@@ -21,6 +21,7 @@ UKF::UKF()
 	// if this is false, radar measurements will be ignored (except during init)
 	use_radar_ = true;
 
+
 	// initial state vector
 	x_ = VectorXd(5);
 	x_.fill(0.0);
@@ -68,7 +69,10 @@ UKF::UKF()
 	}
 }
 
+
 UKF::~UKF() {}
+
+
 
 /**
  * @param {MeasurementPackage} meas_package The latest measurement data of
@@ -141,6 +145,7 @@ void UKF::Prediction(double delta_t)
 
 	// Generate sigma points.
 	this->DebugPrint("Prediction: Generate sigma points");
+
 
 	//create augmented mean vector
 	VectorXd x_aug = VectorXd( this->n_aug_ );
@@ -343,7 +348,7 @@ void UKF::UpdateRadar(MeasurementPackage measurement_pack)
 
 	You'll also need to calculate the radar NIS.
 	*/
-	std::cout << "Radar update! = " << measurement_pack.raw_measurements_.transpose() << std::endl;
+	this->DebugPrint("Radar update! = ",  measurement_pack.raw_measurements_.transpose() );
 
 	// Predict measurement
 	this->DebugPrint("UpdateRadar: Predict measurement.");
@@ -362,20 +367,9 @@ void UKF::UpdateRadar(MeasurementPackage measurement_pack)
 	// Transform sigma points into measurement space.
 	this->DebugPrint("UpdateRadar: transform sigma points into measurement space.");
 	for(int ii = 0; ii < 2*this->n_aug_+1; ii++){
-		float p_x = this->Xsig_pred_(0, ii);
-		float p_y = this->Xsig_pred_(1, ii);
-		float v   = this->Xsig_pred_(2, ii);
-		float psi = this->Xsig_pred_(3, ii);
-
-		Zsig(0, ii) = sqrt( p_x*p_x + p_y*p_y);
-		Zsig(1, ii) = atan2( p_y, p_x);
-		if( fabs(Zsig(0, ii)) > 1e-6 ){
-			Zsig(2, ii) = (p_x*cos(psi)*v + p_y*sin(psi)*v) / Zsig(0, ii);
-		}
-		else{
-			Zsig(2, ii) = 0.0;
-		}
+		Zsig.col(ii) = this->ConvertCartesianToRadar( Xsig_pred_.col(ii).head( this->n_x_ ) );
 	}
+
 
 	// Calculate mean predicted measurement
 	this->DebugPrint("UpdateRadar: Calculate mean predicted measurement.");
