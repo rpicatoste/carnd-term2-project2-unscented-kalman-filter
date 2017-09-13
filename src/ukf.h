@@ -103,6 +103,8 @@ public:
 	*/
 	void UpdateRadar(MeasurementPackage meas_package);
 
+	void DebugPrint(const char* message);
+
 private:
 	void FirstMeasurement(MeasurementPackage meas_package);
 
