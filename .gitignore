@@ -3,3 +3,11 @@
 
 # build files
 build/
+CMakeCache.txt
+.project
+.cproject
+cmake_install.cmake
+UnscentedKF
+Makefile
+.settings/
+CMakeFiles/
