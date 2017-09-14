@@ -7,6 +7,7 @@ The project has been compiled in Windows 10 using the "Bash on Ubuntu on Windows
 
 I have used a tab width of 4 spaces, taking care of the matrices alignment. I hope it's ok, I prefer it like that for programming.
 
+In ukf.cpp, the define DEBUGGING can be set to 1 or 0 in order to print debugging information.
 
 ## Results
 
