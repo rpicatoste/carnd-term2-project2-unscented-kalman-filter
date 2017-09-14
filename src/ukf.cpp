@@ -31,10 +31,12 @@ UKF::UKF()
 	P_.fill(0.0);
 
 	// Process noise standard deviation longitudinal acceleration in m/s^2
-	std_a_ = 3;
+	std_a_ = 1.0;
 
 	// Process noise standard deviation yaw acceleration in rad/s^2
-	std_yawdd_ = 3;
+	std_yawdd_ = 0.4;//M_PI/8.0;
+
+
 
 	// Laser measurement noise standard deviation position1 in m
 	std_laspx_ = 0.15;
@@ -67,6 +69,23 @@ UKF::UKF()
 	for(int ii = 1; ii < 2*this->n_aug_+1; ii++){
 		this->weights_(ii) = 1 / (2*(this->lambda_ + this->n_aug_));
 	}
+
+	// Measurement covariance matrices
+	R_laser_ = MatrixXd(2,2);
+	R_laser_ << this->std_laspx_*this->std_laspx_,  0,
+				0, 						    		this->std_laspy_*this->std_laspy_;
+
+	R_radar_ = MatrixXd(3,3);
+	R_radar_ << this->std_radr_*this->std_radr_, 0,									  0,
+				0, 								 this->std_radphi_*this->std_radphi_, 0,
+				0,								 0, 								  this->std_radrd_*this->std_radrd_;
+
+	NIS_laser_ = 0.0;
+	NIS_radar_ = 0.0;
+
+//	const float coeff = 1.5;
+//	R_laser_ = coeff * R_laser_;
+//	R_radar_ = coeff * R_radar_;
 }
 
 
@@ -84,6 +103,7 @@ void UKF::ProcessMeasurement(MeasurementPackage measurement_pack)
 	/*****************************************************************************
 	 *  Initialization and time calculation.
 	 ****************************************************************************/
+	this->DebugPrint("ProcessMeasurement: Start ----------------------------------------", measurement_pack.raw_measurements_.transpose() );
 	if (!is_initialized_) {
 		this->FirstMeasurement( measurement_pack );
 		return;
@@ -92,6 +112,7 @@ void UKF::ProcessMeasurement(MeasurementPackage measurement_pack)
 	if ( ( (measurement_pack.sensor_type_ == MeasurementPackage::RADAR) && (this->use_radar_ == false) ) ||
 		 ( (measurement_pack.sensor_type_ == MeasurementPackage::LASER) && (this->use_laser_ == false) ) )
 	{
+		this->DebugPrint("Measurement avoided.");
 		// Skip if the sensor used is meant to be ignored.
 		return;
 	}
@@ -131,6 +152,7 @@ void UKF::ProcessMeasurement(MeasurementPackage measurement_pack)
 	}
 
 	this->time_us_ = measurement_pack.timestamp_;
+	this->DebugPrint("ProcessMeasurement: Leaving\n");
 }
 
 /**
@@ -144,8 +166,7 @@ void UKF::Prediction(double delta_t)
 	// Predict sigma points, the state, and the state covariance matrix.
 
 	// Generate sigma points.
-	this->DebugPrint("Prediction: Generate sigma points");
-
+	this->DebugPrint("Prediction: Generate sigma points. Initial state:", this->x_.transpose() );
 
 	//create augmented mean vector
 	VectorXd x_aug = VectorXd( this->n_aug_ );
@@ -180,10 +201,11 @@ void UKF::Prediction(double delta_t)
 
 	// Predict sigma points.
 
-	//create matrix with predicted sigma points as columns
+	// Create matrix with predicted sigma points as columns
 	MatrixXd Xsig_pred = MatrixXd(this->n_x_, 2 * this->n_aug_ + 1);
 
-	//predict sigma points
+	// Predict sigma points
+	this->DebugPrint("Prediction: Predict sigma points");
 	for (int ii = 0; ii< 2*this->n_aug_+1; ii++)
 	{
 		// Extract values for better readability
@@ -201,7 +223,7 @@ void UKF::Prediction(double delta_t)
 		//avoid division by zero
 		if (fabs(yawd) > 0.001) {
 			px_p = p_x + v/yawd * ( sin (yaw + yawd*delta_t) - sin(yaw));
-			py_p = p_y + v/yawd * ( cos(yaw) - cos(yaw+yawd*delta_t) );
+			py_p = p_y + v/yawd * ( cos(yaw) - cos(yaw + yawd*delta_t) );
 		}
 		else {
 			px_p = p_x + v*delta_t*cos(yaw);
@@ -229,21 +251,22 @@ void UKF::Prediction(double delta_t)
 	}
 
 	// Predict mean and covariance.
+	this->DebugPrint("Prediction: Predict mean.");
+
 	this->x_.fill(0.0);
-	//predict state mean
 	for(int ii = 0; ii < 2*this->n_aug_+1; ii++){
 		this->x_ = this->x_ + this->weights_(ii) * Xsig_pred.col(ii);
 	}
 
+	this->DebugPrint("Prediction: Predict covariance.");
 	this->P_.fill(0.0);
-	//predict state covariance matrix
 	for(int ii = 0; ii < 2*this->n_aug_+1; ii++){
 	    // State difference
 	    VectorXd x_diff = Xsig_pred.col(ii) - this->x_;
 	    x_diff(3) = this->LimitAngle( x_diff(3) );
-
 	    this->P_ = this->P_ + this->weights_(ii) * x_diff * x_diff.transpose() ;
 	}
+	this->DebugPrint("Prediction: Leave. State predicted: ", this->x_.transpose() );
 
 }
 
@@ -253,14 +276,9 @@ void UKF::Prediction(double delta_t)
  */
 void UKF::UpdateLidar(MeasurementPackage measurement_pack)
 {
-	/**
-	TODO:
+	// Use lidar data to update the belief about the object's
+	// position. Modify the state vector, x_, and covariance, P_.
 
-	Complete this function! Use lidar data to update the belief about the object's
-	position. Modify the state vector, x_, and covariance, P_.
-
-	You'll also need to calculate the lidar NIS.
-	*/
 	this->DebugPrint("Laser update! = ",  measurement_pack.raw_measurements_.transpose() );
 
 	// Predict measurement
@@ -292,9 +310,6 @@ void UKF::UpdateLidar(MeasurementPackage measurement_pack)
 
 	// Calculate measurement covariance matrix S
 	this->DebugPrint("UpdateLidar: Calculate measurement covariance matrix S.");
-	MatrixXd R(2,2);
-	R << 	this->std_laspx_*this->std_laspx_,  0,
-			0, 						    		this->std_laspy_*this->std_laspy_;
 
 	S.fill(0.0);
 	for(int ii = 0; ii < 2*this->n_aug_+1; ii++){
@@ -302,7 +317,7 @@ void UKF::UpdateLidar(MeasurementPackage measurement_pack)
 		VectorXd z_diff = Zsig.col(ii) - z_pred;
 		S = S + this->weights_(ii) * z_diff * z_diff.transpose() ;
 	}
-	S = S + R;
+	S = S + R_laser_;
 
 	// Update state
 	this->DebugPrint("UpdateLidar: Update state.");
@@ -332,6 +347,7 @@ void UKF::UpdateLidar(MeasurementPackage measurement_pack)
 	this->x_ = this->x_ + K * z_diff;
 	this->P_ = this->P_ - K * S * K.transpose();
 
+	this->NIS_laser_ =  z_diff.transpose() * S * z_diff;
 }
 
 /**
@@ -340,14 +356,9 @@ void UKF::UpdateLidar(MeasurementPackage measurement_pack)
  */
 void UKF::UpdateRadar(MeasurementPackage measurement_pack)
 {
-	/**
-	TODO:
+//	Complete this function! Use radar data to update the belief about the object's
+//	position. Modify the state vector, x_, and covariance, P_.
 
-	Complete this function! Use radar data to update the belief about the object's
-	position. Modify the state vector, x_, and covariance, P_.
-
-	You'll also need to calculate the radar NIS.
-	*/
 	this->DebugPrint("Radar update! = ",  measurement_pack.raw_measurements_.transpose() );
 
 	// Predict measurement
@@ -370,7 +381,6 @@ void UKF::UpdateRadar(MeasurementPackage measurement_pack)
 		Zsig.col(ii) = this->ConvertCartesianToRadar( Xsig_pred_.col(ii).head( this->n_x_ ) );
 	}
 
-
 	// Calculate mean predicted measurement
 	this->DebugPrint("UpdateRadar: Calculate mean predicted measurement.");
 	z_pred.fill(0.0);
@@ -380,10 +390,6 @@ void UKF::UpdateRadar(MeasurementPackage measurement_pack)
 
 	// Calculate measurement covariance matrix S
 	this->DebugPrint("UpdateRadar: Calculate measurement covariance matrix S.");
-	MatrixXd R(3,3);
-	R << 	this->std_radr_*this->std_radr_, 0,									  0,
-			0, 								 this->std_radphi_*this->std_radphi_, 0,
-			0,								 0, 								  this->std_radrd_*this->std_radrd_;
 
 	S.fill(0.0);
 	for(int ii = 0; ii < 2*this->n_aug_+1; ii++){
@@ -391,7 +397,7 @@ void UKF::UpdateRadar(MeasurementPackage measurement_pack)
 		VectorXd z_diff = Zsig.col(ii) - z_pred;
 		S = S + this->weights_(ii) * z_diff * z_diff.transpose() ;
 	}
-	S = S + R;
+	S = S + R_radar_;
 
 	// Update state
 	this->DebugPrint("UpdateRadar: Update state.");
@@ -410,7 +416,6 @@ void UKF::UpdateRadar(MeasurementPackage measurement_pack)
 		//angle normalization
 		z_diff(1) = this->LimitAngle( z_diff(1) );
 
-//		VectorXd x_diff = this->Xsig_pred_.col(ii) - this->x_;
 		VectorXd x_diff = this->Xsig_pred_.col(ii).head(this->n_x_) - this->x_;
 
 		Tc = Tc + this->weights_(ii) * x_diff * z_diff.transpose();
@@ -427,6 +432,10 @@ void UKF::UpdateRadar(MeasurementPackage measurement_pack)
 	z_diff(1) = this->LimitAngle( z_diff(1) );
 	this->x_ = this->x_ + K * z_diff;
 	this->P_ = this->P_ - K * S * K.transpose();
+
+	this->NIS_radar_ =  z_diff.transpose() * S * z_diff;
+
+	this->DebugPrint("UpdateRadar: Leave.");
 }
 
 
@@ -440,7 +449,8 @@ void UKF::FirstMeasurement(MeasurementPackage measurement_pack)
 	 * Remember: you'll need to convert radar from polar to cartesian coordinates.
 	 */
 
-	this->P_ << MatrixXd::Identity( this->P_.rows(), this->P_.rows() );
+	this->P_ = 0.1* MatrixXd::Identity( this->P_.rows(), this->P_.rows() );
+
 
 	if (measurement_pack.sensor_type_ == MeasurementPackage::RADAR) {
 		// Convert radar from polar to cartesian coordinates and initialize state.
@@ -511,13 +521,11 @@ VectorXd UKF::ConvertRadarToCartesian(const VectorXd &radar_measurement)
 float UKF::LimitAngle(float angle)
 {
 	// Limit the angular error to +/- PI
-	while( angle > M_PI ){
-		angle -= 2*M_PI;
-	}
-	while( angle < -M_PI ){
-		angle += 2*M_PI;
-	}
-	return angle;
+	angle = fmod(angle + M_PI, 2 * M_PI);
+	if (angle < 0)
+		angle += 2 * M_PI;
+
+	return angle - M_PI;
 }
 
 
