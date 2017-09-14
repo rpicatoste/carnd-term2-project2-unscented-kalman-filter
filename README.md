@@ -13,8 +13,8 @@ I have used a tab width of 4 spaces, taking care of the matrices alignment. I ho
 The RMSE achieved is below the required maximum limit, and improves clearly the result obtained in the previous project with the Extended Kalman filter.
 
 Below there is a capture after finishing the dataset 1:
-![alt text](./results/result_dataset1.png "Final result")
+![alt text](./results/result_dataset1.png "Result dataset1")
 
 Below there is a capture after finishing the dataset 2:
-![alt text](./results/result_dataset2.png "Final result")
+![alt text](./results/result_dataset2.png "Result dataset2")
 
